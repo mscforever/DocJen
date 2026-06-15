@@ -4,26 +4,35 @@ pipeline {
     environment {
         DOCKER_USERNAME = 'mscforever'
         IMAGE_NAME = "${DOCKER_USERNAME}/docjen-nginx"
-        TAG = "${env.BUILD_NUMBER}-${env.BUILD_ID}"
+        TAG = "build-${BUILD_NUMBER}"
+        XDG_RUNTIME_DIR = "/run/user/${UID}"
+    }
+
+    options {
+        checkoutToSubdirectory('DocJen')
     }
 
     stages {
         stage('Checkout from GitHub') {
             steps {
                 git branch: 'main',
-                    url: 'https://github.com/mscforever/DocJen.git'
-                echo '✅ Код успешно склонирован из репозитория DocJen'
+                    url: 'https://github.com/mscforever/DocJen.git',
+                    credentialsId: 'github-token'
+                echo '✅ Код успешно склонирован'
             }
         }
 
         stage('Build Docker Image') {
             steps {
                 script {
-                    sh """
-                        podman build -t ${IMAGE_NAME}:${TAG} .
-                        podman tag ${IMAGE_NAME}:${TAG} ${IMAGE_NAME}:latest
-                    """
-                    echo '✅ Образ собран успешно'
+                    dir('DocJen') {
+                        sh """
+                            podman system migrate
+                            podman build -t ${IMAGE_NAME}:${TAG} .
+                            podman tag ${IMAGE_NAME}:${TAG} ${IMAGE_NAME}:latest
+                        """
+                    }
+                    echo '✅ Образ собран'
                 }
             }
         }
@@ -31,12 +40,14 @@ pipeline {
         stage('Push to Docker Registry') {
             steps {
                 script {
-                    withCredentials([string(credentialsId: 'docker-hub-token', variable: 'DOCKER_PASS')]) {
-                        sh """
-                            echo ${DOCKER_PASS} | podman login docker.io -u ${DOCKER_USERNAME} --password-stdin
-                            podman push ${IMAGE_NAME}:${TAG}
-                            podman push ${IMAGE_NAME}:latest
-                        """
+                    dir('DocJen') {
+                        withCredentials([string(credentialsId: 'docker-hub-token', variable: 'DOCKER_PASS')]) {
+                            sh """
+                                echo ${DOCKER_PASS} | podman login docker.io -u ${DOCKER_USERNAME} --password-stdin
+                                podman push ${IMAGE_NAME}:${TAG}
+                                podman push ${IMAGE_NAME}:latest
+                            """
+                        }
                     }
                     echo '✅ Образ отправлен в Docker Hub'
                 }
@@ -50,7 +61,7 @@ pipeline {
             echo "📦 Образ: ${IMAGE_NAME}:${TAG}"
         }
         failure {
-            echo "❌ Ошибка в пайплайне. Проверьте логи выше."
+            echo "❌ Ошибка в пайплайне"
         }
     }
 }
